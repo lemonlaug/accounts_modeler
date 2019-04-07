@@ -4,26 +4,17 @@ def simple_example():
     #Establish how long we want to do our forecast for.
     model = Model(pd.Period.now("M").start_time, periods=36, freq='M')
     forecast_period = model.forecast_range
-    #Predicted income over forecast period.
-    ## Start as annual
+    #Predicted income each year.
     predicted_income = pd.Series([100000, 108000, 113000],
                                  forecast_period.asfreq("A").unique()[:3])
-    #Convert to monthly
-    predicted_income = predicted_income.asfreq('M', how='s')
-    predicted_income = predicted_income.reindex(forecast_period, method='ffill')/12
-
-    #Predicted expenses
-    annual_expenses = pd.Series([50000,],
-                                   (pd.Period.now('M'),))
-    monthly_expenses = annual_expenses.reindex(forecast_period, method='ffill')/12
 
     checking_account = Account('Checking', balance=10000)
     savings_account = Account('Savings', balance=50000)
     savings_account.add_repeating_data('interest_rate', .03)
     income = Account('Income')
-    income.add_repeating_data('predicted_income', predicted_income)
+    income.add_one_time_data('predicted_income', predicted_income)
     expenses = Account('Expenses', balance=0)
-    expenses.add_repeating_data('monthly_expenses', monthly_expenses)
+    expenses.add_repeating_data('monthly_expenses', 50000/12)
     down_payment = pd.Series([100000,], (pd.Period.now('M')+30,))
     expenses.add_one_time_data('down_payment', down_payment)
     for account in [checking_account, savings_account, income, expenses]:
@@ -51,6 +42,5 @@ def simple_example():
     
 if __name__ == "__main__":
     model = simple_example()
-    print(savings_account.data)
-    print(checking_account.data)
+    print(model.accounts[0].data)
     

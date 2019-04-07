@@ -17,7 +17,7 @@ def convert_repeating(data, index):
 
 def convert_one_time(data, index):
     if data.index.freq == index.freq:
-        return data
+        return dataxb
     if is_higher_freq(data.index, index):
         return _convert_one_time_higher(data, index)
     return _convert_one_time_lower(data, index)
