@@ -1,7 +1,7 @@
-
 import pandas as pd
 import numpy as np
 from datetime import date
+from accounts_modeler.converters import *
 
 class Model(object):
     """Class representing our overall forecast parametes.
@@ -37,7 +37,7 @@ class Account(object):
     """A class representing an account.
     """
 
-    def __init__(self, label, balance=0, **kwargs):
+    def __init__(self, label, balance=0):
         """
         Args:
             label: A string naming the acct
@@ -46,49 +46,31 @@ class Account(object):
         
         """
         self.label = label
-        self.raw_data = dict(balance=self._convert_raw(balance),
-                             **{key: self._convert_raw(value)
-                                for key, value in kwargs.items()})
+        self.raw_data = {}
         self.data = pd.DataFrame()
         self.transfer_data = pd.DataFrame()
+        self.add_repeating_data('balance', balance)
 
-    def add_raw_data(self, **kwargs):
-        new_data = {key: self._convert_raw(value)
-                    for key, value in kwargs.items()}
+    def add_raw_data(self, label, data, converter):
+        new_data = {label: (data, converter)}
         self.raw_data.update(new_data)
+
+    def add_repeating_data(self, label, data):
+        self.add_raw_data(label, data, convert_repeating)
+
+    def add_one_time_data(self, label, data):
+        self.add_raw_data(label, data, convert_one_time)
         
-    def _convert_raw(self, value):
-        """If a value is a scalar value, convert to a period index with date
-        today.
-
-        Args:
-            value: a pandas Series with period index or a numeric value
-
-        Returns:
-            a pandas Series with period index.
-        """
-        if isinstance(value, (int, float)):
-            return pd.Series((value), index = (pd.Period.now("M"), ))
-        elif self._is_valid_data_series(value):
-            return value
-        else:
-            msg = ("Value supplied to _convert_raw should be numeric"
-                   "scalar or Series with PeriodIndex, not {}")
-            raise TypeError(msg.format(type(value)))
-
     def _is_valid_data_series(self, value):
         return isinstance(value, pd.Series) and isinstance(value.index, pd.PeriodIndex)
 
     def _index_to(self, index):
-        data = {key: self._index_series_to(series, index)
-                for key, series in self.raw_data.items()}
+        data = {key: self._index_series_to(series, index, converter)
+                for key, (series, converter)  in self.raw_data.items()}
         self.data = pd.concat(data, axis = 1)
     
-    def _index_series_to(self, series, index, how=None):
-        index_union = pd.Index.union(series.index, index)
-        old_and_new_index = series.reindex(index_union, method="ffill")
-        new_index_only = old_and_new_index.reindex(index)
-        return new_index_only
+    def _index_series_to(self, series, index, converter):
+        return converter(series, index)
         
     def total_transfers(self, period):
         return self.transfer_data.sum(axis=1).loc[period]

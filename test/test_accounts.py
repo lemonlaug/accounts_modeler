@@ -1,13 +1,16 @@
 import unittest
 from accounts_modeler.account import *
+from accounts_modeler.converters import * 
 from datetime import date
 from numpy import testing as npt
 
 def get_account(label = 'test account'):
     per = pd.Period("2019-01", freq="M")    
-    return Account(label,
-                   balance=pd.Series((100,), index=(per,)),
-                   apy=pd.Series((0.1,), index=(per,)))
+    account = Account(label,
+                   balance=pd.Series((100,), index=(per,)))
+
+    account.add_repeating_data('apy', pd.Series((0.1,), index=(per,)))
+    return account
 
 class TestAccount(unittest.TestCase):
     def Xtest_initialize_scalar(self):
@@ -23,14 +26,15 @@ class TestAccount(unittest.TestCase):
     def test_account_raw_data(self):
         apy_index = pd.period_range('2019-05', periods=2)
         a = Account("test data",
-                    opening_balance=1000,
-                    apy = pd.Series((.1, .2), index=apy_index))
+                    balance=pd.Series((1000,), index=(apy_index[0],)))
+        a.add_repeating_data('apy',pd.Series((.1, .2), index=apy_index))
         expect_opening_balance = pd.Series((1000,),
                                            index=(pd.Period.now("M"),))
-        pd.testing.assert_series_equal(a.raw_data['opening_balance'],
-                                    expect_opening_balance)
-        self.assertRaises(TypeError, lambda x: Account("bad init",
-                                                       wontwork = {"one", 1}))
+        #pd.testing.assert_series_equal(a.raw_data['balance'],
+        #                            expect_opening_balance) This
+        #                            doesn't happen at this time now,
+        #                            need to wait till after adding to
+        #                            model.
 
 
 class TestTransfer(unittest.TestCase):
@@ -94,10 +98,11 @@ class TestTransfer(unittest.TestCase):
 
 class TestModel(unittest.TestCase):
     def setUp(self):
-        self.m = Model('2019-01-01', periods=3, freq="M")
+        self.m = Model('2019-01-01', periods=4, freq="M")
         opening_balance=pd.Series((100.,), index = (pd.Period("2019-01"),))
         self.apy = pd.Series((.1,), index = (pd.Period("2019-01"), ))
-        self.a = Account("test", balance=opening_balance, apy=self.apy)
+        self.a = Account("test", balance=opening_balance)
+        self.a.add_repeating_data('apy', self.apy)
         self.b = Account("Income", balance = opening_balance)
         self.m.add_account(self.a)
         self.m.add_account(self.b)
@@ -106,9 +111,9 @@ class TestModel(unittest.TestCase):
         self.m.add_transfer(self.t)
         
     def test_initialize(self):
-        self.assertEqual(len(self.m.forecast_range), 3)
+        self.assertEqual(len(self.m.forecast_range), 4)
 
-        expect_opening_balance = pd.Series([100.]*3,
+        expect_opening_balance = pd.Series([100.]*4,
                                            index=self.m.forecast_range,
                                            name="balance")
         self.assertTrue(hasattr(self.a, 'data'))
@@ -118,28 +123,57 @@ class TestModel(unittest.TestCase):
     def test_simple_interest_simulation(self):
         self.m.simulate()
         expect_a_data = pd.DataFrame(
-            {'apy': [.1]*3, # Sparse data is filled.
-             'balance': (100., 110., 121.)}, # Balance is forecast.
+            {'apy': [.1]*4, # Sparse data is filled.
+             'balance': (100., 110., 121., 133.1)}, # Balance is forecast.
             index = self.m.forecast_range
         )
         pd.testing.assert_frame_equal(expect_a_data, self.a.data)
 
     def test_simple_income_simulation(self):
-        m = Model('2019-01-01', periods=3, freq='M')
-        monthly_income = pd.Series([333]*3, index=self.m.forecast_range)
-        self.b.add_raw_data(monthly_income=monthly_income)
+        m = Model('2019-01-01', periods=4, freq='M')
+        monthly_income = pd.Series([333.]*4, index=self.m.forecast_range)
+        self.b.add_repeating_data('monthly_income', monthly_income)
+        bonus_income = pd.Series((500., ), (pd.Period('2019-02'),))
+        self.b.add_one_time_data('bonus', bonus_income)
         m.add_account(self.b)
         m.add_account(self.a)
-        self.assertEqual(len(self.b.raw_data['monthly_income']), 3)
+
+        expect_account_data = (pd.concat({'monthly_income': monthly_income,
+                                          'bonus': bonus_income}, axis=1)
+                               .assign(balance=100.))
+        pd.testing.assert_frame_equal(expect_account_data, self.b.data, check_like = True)
+
+        self.assertEqual(len(self.b.data['monthly_income']), 4)
 
         income_transfer = Transfer('salary', self.b, self.a,
-                                   lambda x, y: x.monthly_income)
+                                   lambda x, y: x.drop('balance',axis=1).sum(axis=1))
         m.add_transfer(income_transfer)
         m.simulate()
-        expect_income_data = pd.Series((100., 433., 766.,),
+        expect_income_data = pd.Series((100., 433., 1266., 1599.),
                                        index=m.forecast_range, name='balance')
         pd.testing.assert_series_equal(expect_income_data,
                                       self.a.data.balance)
+
+class TestConverters(unittest.TestCase):
+    def setUp(self):
+        self.higher_freq = pd.period_range('2019-01', periods=3, freq="M")
+
+    def test_convert_repeating(self):
+        data = pd.Series((10,), (pd.Period('2019'),))
+        converted = convert_repeating(data, self.higher_freq)
+
+        expect_converted = pd.Series([10]*3, self.higher_freq)
+        pd.testing.assert_series_equal(converted, expect_converted)
+
+    def test_convert_one_time(self):
+        data = pd.Series((120,), (pd.Period('2019'), ))
+        converted = convert_one_time(data, self.higher_freq)
+        expect_converted = pd.Series([10.]*3, self.higher_freq)
+        pd.testing.assert_series_equal(converted, expect_converted)
+
+        data = pd.Series((120,), (pd.Period('2019-01'),))
+        lower_freq = pd.period_range("2019", periods=1, freq="A")
+        converted = convert_one_time(data, lower_freq)
         
 if __name__ == "__main__":
     unittest.main()

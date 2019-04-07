@@ -16,16 +16,16 @@ def simple_example():
     annual_expenses = pd.Series([50000,],
                                    (pd.Period.now('M'),))
     monthly_expenses = annual_expenses.reindex(forecast_period, method='ffill')/12
-    #One time downpayment
-    #Ooops, this doesn't work.
-    #TODO: tweak the automatic conversions.
-    down_payment = pd.Series([100000,], (pd.Period.now('M')+30,))
-    
+
     checking_account = Account('Checking', balance=10000)
-    savings_account = Account('Savings', balance=50000, interest_rate=.03)
-    income = Account('Income', predicted_income=predicted_income)
-    expenses = Account('Expenses', monthly_expenses=monthly_expenses,
-                       down_payment=down_payment)
+    savings_account = Account('Savings', balance=50000)
+    savings_account.add_repeating_data('interest_rate', .03)
+    income = Account('Income')
+    income.add_repeating_data('predicted_income', predicted_income)
+    expenses = Account('Expenses', balance=0)
+    expenses.add_repeating_data('monthly_expenses', monthly_expenses)
+    down_payment = pd.Series([100000,], (pd.Period.now('M')+30,))
+    expenses.add_one_time_data('down_payment', down_payment)
     for account in [checking_account, savings_account, income, expenses]:
         model.add_account(account)
 
@@ -45,11 +45,12 @@ def simple_example():
         model.add_transfer(transfer)
 
     model.simulate()
-    
-    print(savings_account.data)
-    print(checking_account.data)
+
+    return model
+
     
 if __name__ == "__main__":
-    simple_example()
-
+    model = simple_example()
+    print(savings_account.data)
+    print(checking_account.data)
     
