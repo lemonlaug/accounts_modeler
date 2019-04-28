@@ -3,6 +3,13 @@ import numpy as np
 from datetime import date
 from accounts_modeler.converters import *
 
+def format_as_currency(fun):
+    """Formats columns of a DF as currency.
+    """
+    def wrapper(*args, **kwargs):
+        return fun(*args, **kwargs).style.format('{:,.0f}')
+    return wrapper
+      
 class Model(object):
     """Class representing our overall forecast parametes.
     """
@@ -33,16 +40,28 @@ class Model(object):
         for period in self.forecast_range.values[1:]:
             self._step(period)
 
-    def report_balances(self, account_names=None,
-                        exclude={"Expenses", "Income"}):
-        if not account_names:
-            account_names = {acct.label for acct in self.accounts}
+    def get_reports(self, account_names, exclude):
         report = (pd.concat({acct.label: acct.data.balance
                              for acct in self.accounts
                              if acct.label in account_names-exclude},
                          axis=1)
-                  .assign(Total=lambda x: x.sum(axis=1)))
+                  .assign(Total=lambda x: x.sum(axis=1))
+                  .resample("A")
+                  .last())
         return report
+            
+    @format_as_currency
+    def report_balances(self, account_names=None,
+                        exclude={"Expenses", "Income"}):
+        if not account_names:
+            account_names = {acct.label for acct in self.accounts}
+        return self.get_reports(account_names, exclude)
+
+    @format_as_currency
+    def report_income_expense(self, income="Income", expenses="Expenses"):
+        base = self.get_reports(account_names = {income, expenses},
+                                exclude = set())
+        return base.diff().combine_first(base.iloc[[0]])
         
 
 class Account(object):
