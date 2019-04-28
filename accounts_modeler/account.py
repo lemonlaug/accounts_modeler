@@ -33,6 +33,18 @@ class Model(object):
         for period in self.forecast_range.values[1:]:
             self._step(period)
 
+    def report_balances(self, account_names=None,
+                        exclude={"Expenses", "Income"}):
+        if not account_names:
+            account_names = {acct.label for acct in self.accounts}
+        report = (pd.concat({acct.label: acct.data.balance
+                             for acct in self.accounts
+                             if acct.label in account_names-exclude},
+                         axis=1)
+                  .assign(Total=lambda x: x.sum(axis=1)))
+        return report
+        
+
 class Account(object):
     """A class representing an account.
     """
@@ -73,7 +85,7 @@ class Account(object):
         return converter(series, index)
         
     def total_transfers(self, period):
-        return self.transfer_data.sum(axis=1).loc[period]
+        return self.transfer_data.sum(axis=1).get(period, 0)
         
     def update_balances(self, period):
         old_balance = self.data.balance[period-1]
@@ -106,6 +118,7 @@ class Transfer(object):
             rule: A function that calclulates the transfer amount based on
                 current details of the accounts.
         """
+        self.label = label
         self.from_acct = from_acct
         self.to_acct = to_acct
         self.transfer_rule = transfer_rule
@@ -129,7 +142,8 @@ class Transfer(object):
         gross = self._gross_transfers(period)
         if self.data.index.empty:
             self.data = gross
-        self.data = gross.combine_first(self.data)
+        else:
+            self.data = gross.combine_first(self.data)
         self.to_acct.add_transfers_data(self.data)
         self.from_acct.add_transfers_data(self.data)
 
